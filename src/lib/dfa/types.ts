@@ -27,6 +27,8 @@ export interface MinimizationStep {
   table: boolean[][];
   tableLabels: string[];
   markedThisStep: [number, number][];
+  /** Per-step plain-English reasoning bullets */
+  reasoning: string[];
 }
 
 export interface MinimizationResult {
