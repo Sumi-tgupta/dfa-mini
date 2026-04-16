@@ -1,43 +1,10 @@
-// Core DFA Types
-export interface DFAState {
-  id: string;
-  label: string;
-  x: number;
-  y: number;
-  isStart: boolean;
-  isFinal: boolean;
-}
+// Legacy compatibility re-exports
+// New code should import from '@/features/dfa/types/dfa'
 
-export interface DFATransition {
-  id: string;
-  from: string;
-  to: string;
-  symbol: string;
-}
+export type { DFAState, DFATransition, DFA } from '@/features/dfa/types/dfa';
+export type { MinimizationStep, MinimizationResult } from '@/features/dfa/types/dfa';
 
-export interface DFA {
-  states: DFAState[];
-  transitions: DFATransition[];
-  alphabet: string[];
-}
-
-// Minimization types
-export interface MinimizationStep {
-  description: string;
-  table: boolean[][];
-  tableLabels: string[];
-  markedThisStep: [number, number][];
-  /** Per-step plain-English reasoning bullets */
-  reasoning: string[];
-}
-
-export interface MinimizationResult {
-  steps: MinimizationStep[];
-  equivalenceClasses: string[][];
-  minimizedDFA: DFA;
-}
-
-// String testing types
+// Legacy TestResult type — maps to new SimulationResult shape
 export interface TestStep {
   state: string;
   remaining: string;

@@ -2,7 +2,8 @@
 
 import React, { useState, useRef, useCallback } from 'react';
 import { useDFAStore } from '@/lib/dfa/store';
-import { validateDFA, testString as testStringAlgo } from '@/lib/dfa/algorithms';
+import { validateDFA } from '@/features/dfa/algorithms/validation';
+import { testString as testStringAlgo } from '@/features/dfa/algorithms/simulation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -19,6 +20,7 @@ import {
   SkipForward,
   SkipBack,
   Pause,
+  AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -31,7 +33,6 @@ export default function StringTester() {
   } = useDFAStore();
 
   const [errors, setErrors] = useState<string[]>([]);
-  // BUG FIX: slider was inverted — slider value IS the delay in ms (lower = faster)
   const [animDelay, setAnimDelay] = useState(600);
   const animRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -51,17 +52,18 @@ export default function StringTester() {
   const handleRun = () => {
     const dfa = { states: dfaStates, transitions: dfaTransitions, alphabet };
     const validationErrors = validateDFA(dfa);
-    if (validationErrors.length > 0) {
-      setErrors(validationErrors);
+    const blockingErrors = validationErrors.filter(e => e.severity === 'error');
+    if (blockingErrors.length > 0) {
+      setErrors(blockingErrors.map(e => e.message));
       return;
     }
     setErrors([]);
 
     const result = testStringAlgo(dfa, testString);
 
-    // BUG FIX: store the result FIRST so canvas can read steps during animation
-    useDFAStore.setState({ testResult: result, currentTestStep: 0, isTesting: true });
-    setIsTesting(true);
+    // FIX: Use store actions instead of direct setState
+    useDFAStore.getState().setIsTesting(true);
+    useDFAStore.setState({ testResult: result, currentTestStep: 0 });
 
     let step = 0;
     animRef.current = setInterval(() => {
@@ -157,20 +159,20 @@ export default function StringTester() {
           </Button>
         </div>
 
-        {/* Speed slider — BUG FIX: value IS the delay directly, no inversion needed */}
+        {/* FIX: Speed slider — Slow on left, Fast on right (natural direction) */}
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-muted-foreground uppercase tracking-wider shrink-0">Speed</span>
-          <span className="text-[10px] text-muted-foreground font-mono shrink-0">Fast</span>
+          <span className="text-[10px] text-muted-foreground font-mono shrink-0">Slow</span>
           <input
             type="range"
             min={100}
             max={1200}
             step={100}
-            value={1300 - animDelay}          // slider right = faster = lower delay
+            value={1300 - animDelay}
             onChange={(e) => setAnimDelay(1300 - Number(e.target.value))}
             className="flex-1 h-1 accent-violet-500"
           />
-          <span className="text-[10px] text-muted-foreground font-mono shrink-0">Slow</span>
+          <span className="text-[10px] text-muted-foreground font-mono shrink-0">Fast</span>
         </div>
 
         {/* Quick strings */}
@@ -295,7 +297,7 @@ export default function StringTester() {
           <div className="text-center text-muted-foreground">
             <Keyboard className="w-8 h-8 mx-auto mb-2 opacity-40" />
             <p className="text-xs">Enter a string and click Run</p>
-            <p className="text-[10px] mt-1 opacity-60">Every state needs transitions for all alphabet symbols</p>
+            <p className="text-[10px] mt-1 opacity-60">Missing transitions will be treated as implicit rejection</p>
           </div>
         </div>
       )}

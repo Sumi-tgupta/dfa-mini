@@ -34,21 +34,45 @@ function ArrowMarkers() {
 }
 
 // ──────────────────────────────────────────
+// Group transitions: same (from, to) → merged label "0,1"
+// ──────────────────────────────────────────
+interface GroupedTransition {
+  from: string;
+  to: string;
+  symbols: string[];
+  ids: string[];
+}
+
+function groupTransitions(transitions: DFATransition[]): GroupedTransition[] {
+  const map = new Map<string, GroupedTransition>();
+  for (const t of transitions) {
+    const key = `${t.from}->${t.to}`;
+    if (!map.has(key)) {
+      map.set(key, { from: t.from, to: t.to, symbols: [], ids: [] });
+    }
+    const group = map.get(key)!;
+    group.symbols.push(t.symbol);
+    group.ids.push(t.id);
+  }
+  return Array.from(map.values());
+}
+
+// ──────────────────────────────────────────
 // Compute transition path (self-loop / curved / straight)
 // ──────────────────────────────────────────
-function getTransitionPath(
+function getGroupedPath(
   from: DFAState,
   to: DFAState,
-  transitions: DFATransition[],
-  transitionId: string
+  allGrouped: GroupedTransition[],
 ): { path: string; labelX: number; labelY: number; isSelfLoop: boolean } {
   const R = STATE_RADIUS;
 
   if (from.id === to.id) {
+    // Self-loop: render above the state
     return {
-      path: `M ${from.x + R * 0.7} ${from.y - R * 0.7} C ${from.x + R * 2} ${from.y - R * 2.5} ${from.x + R * 2.5} ${from.y + R * 0.5} ${from.x + R * 0.7} ${from.y + R * 0.1}`,
-      labelX: from.x + R * 2.2,
-      labelY: from.y - R * 1.2,
+      path: `M ${from.x - R * 0.5} ${from.y - R * 0.85} C ${from.x - R * 1.5} ${from.y - R * 2.8} ${from.x + R * 1.5} ${from.y - R * 2.8} ${from.x + R * 0.5} ${from.y - R * 0.85}`,
+      labelX: from.x,
+      labelY: from.y - R * 2.3,
       isSelfLoop: true,
     };
   }
@@ -61,17 +85,9 @@ function getTransitionPath(
   const perpX = -ny;
   const perpY = nx;
 
-  const hasReverse = transitions.some(t => t.from === to.id && t.to === from.id);
-  const sameDirTransitions = transitions.filter(t => t.from === from.id && t.to === to.id);
-  const isFirst = transitionId === sameDirTransitions[0]?.id;
+  const hasReverse = allGrouped.some(g => g.from === to.id && g.to === from.id);
 
-  let offset = 0;
-  if (hasReverse) {
-    offset = isFirst ? -20 : 20;
-  } else if (sameDirTransitions.length > 1) {
-    const idx = sameDirTransitions.findIndex(t => t.id === transitionId);
-    offset = (idx - (sameDirTransitions.length - 1) / 2) * 24;
-  }
+  const offset = hasReverse ? -20 : 0;
 
   const startX = from.x + nx * R + perpX * offset;
   const startY = from.y + ny * R + perpY * offset;
@@ -114,24 +130,34 @@ function StartArrow({ state }: { state: DFAState }) {
 }
 
 // ──────────────────────────────────────────
-// Transition edge
+// Grouped Transition edge (merged labels)
 // ──────────────────────────────────────────
-function TransitionEdge({
-  transition, from, to, allTransitions, isHighlighted, onClick,
+function GroupedTransitionEdge({
+  group, from, to, allGrouped, highlightedIds, onClick,
 }: {
-  transition: DFATransition;
+  group: GroupedTransition;
   from: DFAState;
   to: DFAState;
-  allTransitions: DFATransition[];
-  isHighlighted: boolean;
+  allGrouped: GroupedTransition[];
+  highlightedIds: Set<string>;
   onClick: (t: DFATransition) => void;
 }) {
-  const { path, labelX, labelY, isSelfLoop } = getTransitionPath(from, to, allTransitions, transition.id);
-
+  const { path, labelX, labelY } = getGroupedPath(from, to, allGrouped);
+  const isHighlighted = group.ids.some(id => highlightedIds.has(id));
   const markerUrl = isHighlighted ? 'url(#arrowhead-highlight)' : 'url(#arrowhead)';
+  const label = group.symbols.join(',');
+  const labelWidth = Math.max(label.length * 8 + 12, 24);
+
+  // Create a dummy transition for click handler
+  const firstTransition: DFATransition = {
+    id: group.ids[0],
+    from: group.from,
+    to: group.to,
+    symbol: group.symbols[0],
+  };
 
   return (
-    <g className="cursor-pointer" onClick={() => onClick(transition)}>
+    <g className="cursor-pointer" onClick={() => onClick(firstTransition)}>
       <path
         d={path}
         className={isHighlighted ? 'stroke-emerald-400' : 'stroke-muted-foreground'}
@@ -145,16 +171,16 @@ function TransitionEdge({
       <path d={path} fill="none" stroke="transparent" strokeWidth={16} />
       <g transform={`translate(${labelX}, ${labelY})`}>
         <rect
-          x={-12} y={-10} width={24} height={20} rx={6}
+          x={-labelWidth / 2} y={-10} width={labelWidth} height={20} rx={6}
           className="fill-background" opacity={0.9}
         />
         <text
           textAnchor="middle"
           dominantBaseline="central"
           className={`fill-foreground text-xs font-mono font-bold ${isHighlighted ? 'fill-emerald-400' : ''}`}
-          fontSize={13}
+          fontSize={12}
         >
-          {transition.symbol}
+          {label}
         </text>
       </g>
     </g>
@@ -228,7 +254,8 @@ function StateCircle({
       <text
         x={state.x} y={state.y}
         textAnchor="middle" dominantBaseline="central"
-        className={`fill-foreground font-mono text-sm font-semibold ${isCurrentTestState ? (isAccepted ? 'fill-emerald-300' : 'fill-red-300') : ''}`}
+        className={`fill-foreground font-mono font-semibold ${isCurrentTestState ? (isAccepted ? 'fill-emerald-300' : 'fill-red-300') : ''}`}
+        fontSize={state.label.length > 4 ? 10 : 14}
         pointerEvents="none"
       >
         {state.label}
@@ -284,18 +311,13 @@ export default function DFACanvas() {
     states, transitions, mode, selectedStateId, connectingFrom, alphabet,
     addState, removeState, toggleFinalState,
     setSelectedState, setConnectingFrom, addTransitionAndEdit,
-    setMode, updateStatePosition, setEditingTransition,
+    updateStatePosition, setEditingTransition,
     testResult, currentTestStep,
-    // BUG FIX: get testString directly from store — TestResult has no testString field
     testString,
-    showMinimized, minimizationResult,
   } = useDFAStore();
 
-  // Which DFA to display
-  const displayStates = showMinimized && minimizationResult?.minimizedDFA
-    ? minimizationResult.minimizedDFA.states : states;
-  const displayTransitions = showMinimized && minimizationResult?.minimizedDFA
-    ? minimizationResult.minimizedDFA.transitions : transitions;
+  // Group transitions for merged label rendering
+  const groupedTransitions = groupTransitions(transitions);
 
   // Responsive sizing
   useEffect(() => {
@@ -309,17 +331,18 @@ export default function DFACanvas() {
   }, []);
 
   // Compute which transition to highlight
-  // BUG FIX: was `testResult?.testString` (doesn't exist) → now uses `testString` from store
   const testStep = testResult?.steps[currentTestStep];
   const currentTestStateId = testStep ? testStep.state : null;
   const isAccepted = testStep?.isAccepted ?? false;
 
   const prevStep = currentTestStep > 0 ? testResult?.steps[currentTestStep - 1] : null;
-  const highlightedTransitionId = prevStep
-    ? displayTransitions.find(
-        t => t.from === prevStep.state && t.symbol === testString[currentTestStep - 1]
-      )?.id ?? null
-    : null;
+  const highlightedTransitionIds = new Set<string>();
+  if (prevStep) {
+    const matching = transitions.find(
+      t => t.from === prevStep.state && t.symbol === testString[currentTestStep - 1]
+    );
+    if (matching) highlightedTransitionIds.add(matching.id);
+  }
 
   // Drag handlers
   const getSVGCoords = useCallback((e: React.MouseEvent) => {
@@ -367,7 +390,6 @@ export default function DFACanvas() {
       if (!connectingFrom) {
         setConnectingFrom(state.id);
       } else if (connectingFrom !== state.id) {
-        // BUG FIX: use addTransitionAndEdit to open symbol picker immediately
         addTransitionAndEdit(connectingFrom, state.id);
         setConnectingFrom(null);
       } else {
@@ -409,7 +431,7 @@ export default function DFACanvas() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedStateId, removeState]);
 
-  const connectingFromState = displayStates.find(s => s.id === connectingFrom);
+  const connectingFromState = states.find(s => s.id === connectingFrom);
 
   return (
     <div className="relative w-full h-full overflow-hidden rounded-xl border border-border bg-card/50 backdrop-blur-sm" style={{ minHeight: 400 }}>
@@ -435,19 +457,19 @@ export default function DFACanvas() {
 
         <GridBackground width={dimensions.width} height={dimensions.height} />
 
-        {/* Transitions */}
-        {displayTransitions.map(t => {
-          const from = displayStates.find(s => s.id === t.from);
-          const to = displayStates.find(s => s.id === t.to);
+        {/* Grouped Transitions (merged labels) */}
+        {groupedTransitions.map(group => {
+          const from = states.find(s => s.id === group.from);
+          const to = states.find(s => s.id === group.to);
           if (!from || !to) return null;
           return (
-            <TransitionEdge
-              key={t.id}
-              transition={t}
+            <GroupedTransitionEdge
+              key={`${group.from}->${group.to}`}
+              group={group}
               from={from}
               to={to}
-              allTransitions={displayTransitions}
-              isHighlighted={highlightedTransitionId === t.id}
+              allGrouped={groupedTransitions}
+              highlightedIds={highlightedTransitionIds}
               onClick={handleTransitionClick}
             />
           );
@@ -459,12 +481,12 @@ export default function DFACanvas() {
         )}
 
         {/* Start arrows */}
-        {displayStates.filter(s => s.isStart).map(s => (
+        {states.filter(s => s.isStart).map(s => (
           <StartArrow key={`start-${s.id}`} state={s} />
         ))}
 
         {/* States */}
-        {displayStates.map(s => (
+        {states.map(s => (
           <StateCircle
             key={s.id}
             state={s}
@@ -491,8 +513,8 @@ export default function DFACanvas() {
       {/* Stats overlay */}
       <div className="absolute bottom-3 left-3 pointer-events-none">
         <div className="px-3 py-1.5 rounded-lg bg-background/80 backdrop-blur-sm border border-border text-xs font-mono text-muted-foreground">
-          {displayStates.length} state{displayStates.length !== 1 ? 's' : ''} &middot;{' '}
-          {displayTransitions.length} transition{displayTransitions.length !== 1 ? 's' : ''} &middot;{' '}
+          {states.length} state{states.length !== 1 ? 's' : ''} &middot;{' '}
+          {transitions.length} transition{transitions.length !== 1 ? 's' : ''} &middot;{' '}
           Σ = {'{' + alphabet.join(', ') + '}'}
         </div>
       </div>

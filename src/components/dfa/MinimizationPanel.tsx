@@ -9,14 +9,14 @@ import { Badge } from '@/components/ui/badge';
 import {
   GitCompareArrows, ChevronLeft, ChevronRight, SkipForward, SkipBack,
   CheckCircle2, X as XIcon, Layers, ArrowRight, Eye, EyeOff,
-  Info, Cpu, ArrowRightLeft,
+  Info, Cpu, ArrowRightLeft, AlertCircle, AlertTriangle, ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // ──────────────────────────────────────────────────────────────────
 // Mini SVG canvas — renders a small DFA diagram (read-only)
 // ──────────────────────────────────────────────────────────────────
-const R = 26; // state radius
+const R = 26;
 
 function getMiniPath(
   from: DFAState, to: DFAState,
@@ -24,8 +24,8 @@ function getMiniPath(
 ): { path: string; lx: number; ly: number } {
   if (from.id === to.id) {
     return {
-      path: `M ${from.x + R * 0.7} ${from.y - R * 0.7} C ${from.x + R * 1.8} ${from.y - R * 2.5} ${from.x + R * 2.5} ${from.y + R * 0.5} ${from.x + R * 0.7} ${from.y + R * 0.1}`,
-      lx: from.x + R * 2.1, ly: from.y - R * 1.2,
+      path: `M ${from.x - R * 0.5} ${from.y - R * 0.85} C ${from.x - R * 1.3} ${from.y - R * 2.5} ${from.x + R * 1.3} ${from.y - R * 2.5} ${from.x + R * 0.5} ${from.y - R * 0.85}`,
+      lx: from.x, ly: from.y - R * 2.1,
     };
   }
   const dx = to.x - from.x, dy = to.y - from.y;
@@ -46,6 +46,17 @@ function getMiniPath(
   };
 }
 
+// Group same-direction transitions for mini canvas
+function groupMiniTransitions(transitions: DFATransition[]): { from: string; to: string; symbols: string[]; id: string }[] {
+  const map = new Map<string, { from: string; to: string; symbols: string[]; id: string }>();
+  for (const t of transitions) {
+    const key = `${t.from}->${t.to}`;
+    if (!map.has(key)) map.set(key, { from: t.from, to: t.to, symbols: [], id: t.id });
+    map.get(key)!.symbols.push(t.symbol);
+  }
+  return Array.from(map.values());
+}
+
 function MiniDFACanvas({ dfa, title, accent }: { dfa: DFA; title: string; accent: string }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [vb, setVb] = useState('0 0 500 300');
@@ -54,7 +65,7 @@ function MiniDFACanvas({ dfa, title, accent }: { dfa: DFA; title: string; accent
     if (dfa.states.length === 0) return;
     const xs = dfa.states.map(s => s.x);
     const ys = dfa.states.map(s => s.y);
-    const pad = 60;
+    const pad = 70;
     const minX = Math.min(...xs) - pad, maxX = Math.max(...xs) + pad;
     const minY = Math.min(...ys) - pad, maxY = Math.max(...ys) + pad;
     setVb(`${minX} ${minY} ${Math.max(maxX - minX, 300)} ${Math.max(maxY - minY, 200)}`);
@@ -68,6 +79,8 @@ function MiniDFACanvas({ dfa, title, accent }: { dfa: DFA; title: string; accent
       </div>
     );
   }
+
+  const grouped = groupMiniTransitions(dfa.transitions);
 
   return (
     <div className={`rounded-xl border overflow-hidden ${accent === 'violet' ? 'border-violet-500/20 bg-violet-500/5' : 'border-emerald-500/20 bg-emerald-500/5'}`}>
@@ -84,24 +97,26 @@ function MiniDFACanvas({ dfa, title, accent }: { dfa: DFA; title: string; accent
           </marker>
         </defs>
 
-        {/* Transitions */}
-        {dfa.transitions.map(t => {
-          const from = dfa.states.find(s => s.id === t.from);
-          const to = dfa.states.find(s => s.id === t.to);
+        {/* Grouped Transitions */}
+        {grouped.map(g => {
+          const from = dfa.states.find(s => s.id === g.from);
+          const to = dfa.states.find(s => s.id === g.to);
           if (!from || !to) return null;
           const { path, lx, ly } = getMiniPath(from, to, dfa.transitions);
+          const label = g.symbols.join(',');
+          const labelW = Math.max(label.length * 6 + 8, 18);
           return (
-            <g key={t.id}>
+            <g key={g.id}>
               <path d={path} fill="none"
                 stroke={accent === 'violet' ? '#a78bfa' : '#34d399'}
                 strokeWidth={1.5} opacity={0.5}
                 markerEnd={`url(#mini-arr-${accent})`} />
-              <rect x={lx - 9} y={ly - 8} width={18} height={16} rx={4}
+              <rect x={lx - labelW / 2} y={ly - 8} width={labelW} height={16} rx={4}
                 fill="var(--background)" opacity={0.9} />
               <text x={lx} y={ly} textAnchor="middle" dominantBaseline="central"
-                fontSize={10} fontFamily="monospace" fontWeight="bold"
+                fontSize={9} fontFamily="monospace" fontWeight="bold"
                 fill={accent === 'violet' ? '#a78bfa' : '#34d399'}>
-                {t.symbol}
+                {label}
               </text>
             </g>
           );
@@ -236,6 +251,7 @@ export default function MinimizationPanel() {
     minimizationResult, currentStep, setStep,
     minimize, resetMinimization,
     showMinimized, setShowMinimized,
+    validationErrors,
   } = useDFAStore();
 
   const steps = minimizationResult?.steps ?? [];
@@ -245,6 +261,8 @@ export default function MinimizationPanel() {
   const [activeView, setActiveView] = useState<'steps' | 'compare'>('steps');
 
   const originalDFA: DFA = { states, transitions, alphabet };
+
+  const hasBlockingErrors = validationErrors.some(e => e.severity === 'error');
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -270,14 +288,31 @@ export default function MinimizationPanel() {
         </h3>
       </div>
 
+      {/* Validation errors display */}
+      {hasBlockingErrors && minimizationResult && (
+        <div className="px-4 py-2 border-b border-destructive/20">
+          <div className="px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/20">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+              <div className="space-y-0.5">
+                <p className="text-xs font-medium text-destructive">Cannot minimize — fix these errors first:</p>
+                {validationErrors.filter(e => e.severity === 'error').map((err, i) => (
+                  <p key={i} className="text-xs text-destructive/80">• {err.message}</p>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {!minimizationResult ? (
         /* ── No result yet ── */
         <div className="flex-1 flex flex-col items-center justify-center px-4 gap-4">
           <div className="text-center text-muted-foreground">
             <GitCompareArrows className="w-10 h-10 mx-auto mb-3 opacity-30" />
             <p className="text-sm font-medium mb-1">Minimize Your DFA</p>
-            <p className="text-xs opacity-70 max-w-[200px] leading-relaxed">
-              Uses the Myhill–Nerode table-filling algorithm with step-by-step visual explanation
+            <p className="text-xs opacity-70 max-w-[220px] leading-relaxed">
+              Uses the Myhill–Nerode table-filling algorithm with dead state injection and step-by-step visual explanation
             </p>
           </div>
           <Button
@@ -306,6 +341,22 @@ export default function MinimizationPanel() {
               </div>
             </div>
             <MiniDFACanvas dfa={minimizationResult.minimizedDFA} title="Minimized DFA" accent="emerald" />
+
+            {/* Info badges */}
+            <div className="flex flex-wrap gap-2 justify-center">
+              {minimizationResult.removedUnreachable.length > 0 && (
+                <Badge variant="outline" className="text-[10px] px-2 py-0.5 border-amber-500/30 text-amber-400 gap-1">
+                  <AlertTriangle className="w-3 h-3" />
+                  {minimizationResult.removedUnreachable.length} unreachable removed
+                </Badge>
+              )}
+              {minimizationResult.deadStateAdded && (
+                <Badge variant="outline" className="text-[10px] px-2 py-0.5 border-blue-500/30 text-blue-400 gap-1">
+                  <ShieldCheck className="w-3 h-3" />
+                  Trap state added
+                </Badge>
+              )}
+            </div>
 
             <Button
               size="sm"
@@ -443,6 +494,24 @@ export default function MinimizationPanel() {
                       })}
                     </div>
                   </div>
+
+                  {/* Info badges */}
+                  {(minimizationResult.removedUnreachable.length > 0 || minimizationResult.deadStateAdded) && (
+                    <div className="flex flex-wrap gap-2">
+                      {minimizationResult.removedUnreachable.length > 0 && (
+                        <Badge variant="outline" className="text-[10px] px-2 py-0.5 border-amber-500/30 text-amber-400 gap-1">
+                          <AlertTriangle className="w-3 h-3" />
+                          {minimizationResult.removedUnreachable.length} unreachable state(s) removed
+                        </Badge>
+                      )}
+                      {minimizationResult.deadStateAdded && (
+                        <Badge variant="outline" className="text-[10px] px-2 py-0.5 border-blue-500/30 text-blue-400 gap-1">
+                          <ShieldCheck className="w-3 h-3" />
+                          Trap state injected for missing transitions
+                        </Badge>
+                      )}
+                    </div>
+                  )}
 
                   {/* Mini minimized DFA preview */}
                   <MiniDFACanvas dfa={minimizationResult.minimizedDFA} title="Minimized DFA" accent="emerald" />

@@ -13,20 +13,21 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-  TooltipProvider,
+  Tooltip, TooltipContent, TooltipTrigger, TooltipProvider,
 } from '@/components/ui/tooltip';
 import {
-  Moon, Sun, Cpu, Minimize2, Download, Upload,
+  Moon, Sun, Cpu, Download, Upload, PlusCircle, BookOpen, Sparkles,
+  Keyboard, Table2,
 } from 'lucide-react';
 
 import Toolbar from '@/components/dfa/Toolbar';
 import StatePanel from '@/components/dfa/StatePanel';
 import StringTester from '@/components/dfa/StringTester';
-import MinimizationPanel from '@/components/dfa/MinimizationPanel';
+import MinimizationSection from '@/components/dfa/MinimizationSection';
 import TransitionSymbolPicker from '@/components/dfa/TransitionSymbolPicker';
+import ExampleLibraryDialog from '@/components/dfa/ExampleLibraryDialog';
+import ShortcutGuide from '@/components/dfa/ShortcutGuide';
+import TransitionTableView from '@/components/dfa/TransitionTableView';
 
 const DFACanvas = dynamic(() => import('@/components/dfa/DFACanvas'), {
   ssr: false,
@@ -42,14 +43,45 @@ import { useDFAStore } from '@/lib/dfa/store';
 export default function DFAMinimizerPage() {
   const { setTheme, resolvedTheme } = useTheme();
   const mounted = useHydrated();
-  const { showMinimized, minimizationResult, exportDFA, importDFA } = useDFAStore();
+  const { minimizationResult, exportDFA, importDFA } = useDFAStore();
+  const stateCount = useDFAStore(s => s.states.length);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [exampleOpen, setExampleOpen] = useState(false);
+  const [shortcutOpen, setShortcutOpen] = useState(false);
 
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      // Undo: Ctrl+Z
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        useDFAStore.getState().undo();
+        return;
+      }
+      // Redo: Ctrl+Y or Ctrl+Shift+Z
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        useDFAStore.getState().redo();
+        return;
+      }
+      // Export: Ctrl+D
+      if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+        e.preventDefault();
+        // trigger export
+        const json = useDFAStore.getState().exportDFA();
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'dfa.json'; a.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
+      // Shortcut guide: ?
+      if (e.key === '?') { setShortcutOpen(true); return; }
+
       switch (e.key.toLowerCase()) {
         case 's': useDFAStore.getState().setMode('select'); break;
         case 'a': useDFAStore.getState().setMode('add-state'); break;
@@ -72,9 +104,7 @@ export default function DFAMinimizerPage() {
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = 'dfa.json';
-    a.click();
+    a.href = url; a.download = 'dfa.json'; a.click();
     URL.revokeObjectURL(url);
   };
 
@@ -92,7 +122,6 @@ export default function DFAMinimizerPage() {
       }
     };
     reader.readAsText(file);
-    // Reset so same file can be re-imported
     e.target.value = '';
   };
 
@@ -116,17 +145,17 @@ export default function DFAMinimizerPage() {
               </div>
             </div>
 
-            {/* Toolbar (centered) */}
-            <div className="hidden md:flex flex-1 justify-center max-w-xl">
-              <Toolbar />
+            {/* Toolbar (centered) — pass dialog opener */}
+            <div className="hidden md:flex flex-1 justify-center max-w-2xl">
+              <Toolbar onOpenExamples={() => setExampleOpen(true)} />
             </div>
 
             {/* Right actions */}
             <div className="flex items-center gap-1.5 shrink-0">
-              {showMinimized && minimizationResult && (
-                <Badge variant="secondary" className="px-2.5 py-1 text-xs bg-amber-500/10 text-amber-400 border-amber-500/20 gap-1.5 hidden sm:flex">
-                  <Minimize2 className="w-3 h-3" />
-                  Minimized View
+              {minimizationResult && (
+                <Badge variant="secondary" className="px-2.5 py-1 text-xs bg-emerald-500/10 text-emerald-400 border-emerald-500/20 gap-1.5 hidden sm:flex">
+                  <Sparkles className="w-3 h-3" />
+                  Minimized
                 </Badge>
               )}
 
@@ -137,7 +166,7 @@ export default function DFAMinimizerPage() {
                     <Download className="w-4 h-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" className="text-xs">Export DFA as JSON</TooltipContent>
+                <TooltipContent side="bottom" className="text-xs">Export DFA as JSON (Ctrl+D)</TooltipContent>
               </Tooltip>
 
               {/* Import */}
@@ -150,6 +179,16 @@ export default function DFAMinimizerPage() {
                 <TooltipContent side="bottom" className="text-xs">Import DFA from JSON</TooltipContent>
               </Tooltip>
               <input ref={fileInputRef} type="file" accept=".json" className="hidden" onChange={handleImport} />
+
+              {/* Shortcut guide */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-9 w-9 rounded-lg" onClick={() => setShortcutOpen(true)}>
+                    <Keyboard className="w-4 h-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">Keyboard shortcuts (?)</TooltipContent>
+              </Tooltip>
 
               {/* Theme toggle */}
               <Tooltip>
@@ -172,7 +211,7 @@ export default function DFAMinimizerPage() {
 
           {/* Mobile toolbar */}
           <div className="md:hidden px-4 pb-3">
-            <Toolbar />
+            <Toolbar onOpenExamples={() => setExampleOpen(true)} />
           </div>
 
           {/* Import error banner */}
@@ -186,37 +225,87 @@ export default function DFAMinimizerPage() {
         {/* ─── MAIN CONTENT ─── */}
         <main className="flex-1 max-w-[1600px] mx-auto w-full px-4 sm:px-6 py-4 flex flex-col lg:flex-row gap-4">
           {/* Canvas */}
-          <div className="flex-1 min-h-[400px] lg:min-h-[600px]">
+          <div className="flex-1 min-h-[400px] lg:min-h-[600px] relative">
             <DFACanvas />
+
+            {/* Welcome overlay when empty */}
+            {stateCount === 0 && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="pointer-events-auto bg-card/90 backdrop-blur-md border border-border rounded-2xl p-8 max-w-sm text-center shadow-2xl">
+                  <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500/20 to-amber-500/20 border border-violet-500/30 mx-auto mb-4">
+                    <Cpu className="w-7 h-7 text-violet-400" />
+                  </div>
+                  <h2 className="text-lg font-bold mb-2">Welcome to DFA Minimizer</h2>
+                  <p className="text-xs text-muted-foreground mb-5 leading-relaxed">
+                    Build a DFA, simulate strings, and minimize it step-by-step using the
+                    Myhill–Nerode table-filling algorithm.
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    <Button
+                      onClick={() => setExampleOpen(true)}
+                      className="gap-2 bg-violet-600 hover:bg-violet-700 text-white w-full"
+                    >
+                      <BookOpen className="w-4 h-4" />
+                      Browse Example DFAs
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => useDFAStore.getState().setMode('add-state')}
+                      className="gap-2 w-full"
+                    >
+                      <PlusCircle className="w-4 h-4" />
+                      Start from Scratch
+                    </Button>
+                  </div>
+                  <div className="mt-4 flex items-center justify-center gap-4 text-[10px] text-muted-foreground">
+                    {(['S','A','C','D'] as const).map((key, i) => (
+                      <span key={key} className="flex items-center gap-1">
+                        <kbd className="px-1.5 py-0.5 rounded border border-border bg-card text-[10px] font-mono">{key}</kbd>
+                        {['Select','Add','Connect','Delete'][i]}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Side panel */}
+          {/* Side panel — 3 tabs: States · Test · Table */}
           <div className="w-full lg:w-[380px] flex-shrink-0">
             <div className="rounded-xl border border-border bg-card/50 backdrop-blur-sm overflow-hidden h-full max-h-[600px] lg:max-h-none flex flex-col">
               <Tabs defaultValue="states" className="flex flex-col h-full">
                 <TabsList className="w-full grid grid-cols-3 rounded-none border-b border-border bg-transparent h-10 p-0">
-                  {[
-                    { value: 'states', label: 'States', color: 'violet' },
-                    { value: 'test',   label: 'Test',   color: 'emerald' },
-                    { value: 'minimize', label: 'Minimize', color: 'amber' },
-                  ].map(({ value, label, color }) => (
-                    <TabsTrigger
-                      key={value}
-                      value={value}
-                      className={`rounded-none border-b-2 border-transparent data-[state=active]:border-${color}-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs h-10`}
-                    >
-                      {label}
-                    </TabsTrigger>
-                  ))}
+                  <TabsTrigger
+                    value="states"
+                    className="rounded-none border-b-2 border-transparent data-[state=active]:border-violet-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs h-10"
+                  >
+                    States
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="test"
+                    className="rounded-none border-b-2 border-transparent data-[state=active]:border-emerald-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs h-10"
+                  >
+                    Test
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="table"
+                    className="rounded-none border-b-2 border-transparent data-[state=active]:border-sky-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs h-10 gap-1"
+                  >
+                    <Table2 className="w-3 h-3" />
+                    δ Table
+                  </TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="states"   className="flex-1 overflow-hidden m-0 h-full"><StatePanel /></TabsContent>
-                <TabsContent value="test"     className="flex-1 overflow-hidden m-0 h-full"><StringTester /></TabsContent>
-                <TabsContent value="minimize" className="flex-1 overflow-hidden m-0 h-full"><MinimizationPanel /></TabsContent>
+                <TabsContent value="states" className="flex-1 overflow-hidden m-0 h-full"><StatePanel /></TabsContent>
+                <TabsContent value="test" className="flex-1 overflow-hidden m-0 h-full"><StringTester /></TabsContent>
+                <TabsContent value="table" className="flex-1 overflow-hidden m-0 h-full"><TransitionTableView /></TabsContent>
               </Tabs>
             </div>
           </div>
         </main>
+
+        {/* ─── MINIMIZATION SECTION ─── */}
+        <MinimizationSection />
 
         {/* ─── FOOTER ─── */}
         <footer className="border-t border-border py-4 mt-auto">
@@ -230,14 +319,16 @@ export default function DFAMinimizerPage() {
                 </span>
               ))}
               <span className="flex items-center gap-1">
-                <kbd className="px-1.5 py-0.5 rounded border border-border bg-card text-[10px] font-mono">Del</kbd>
-                Remove state
+                <kbd className="px-1.5 py-0.5 rounded border border-border bg-card text-[10px] font-mono">?</kbd>
+                Shortcuts
               </span>
             </div>
           </div>
         </footer>
 
         <TransitionSymbolPicker />
+        <ExampleLibraryDialog open={exampleOpen} onOpenChange={setExampleOpen} />
+        <ShortcutGuide open={shortcutOpen} onOpenChange={setShortcutOpen} />
       </div>
     </TooltipProvider>
   );

@@ -10,10 +10,11 @@ import {
   ArrowRightLeft,
   Trash2,
   RotateCcw,
-  Play,
   BookOpen,
-  Minimize2,
   Sparkles,
+  Minimize2,
+  Undo2,
+  Redo2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -24,12 +25,23 @@ const tools = [
   { id: 'delete' as const, label: 'Delete', icon: Trash2, shortcut: 'D' },
 ];
 
-export default function Toolbar() {
-  const { mode, setMode, resetDFA, loadExample, minimize, resetMinimization, showMinimized, setShowMinimized } = useDFAStore();
+export default function Toolbar({ onOpenExamples }: { onOpenExamples?: () => void }) {
+  const mode = useDFAStore(s => s.mode);
+  const setMode = useDFAStore(s => s.setMode);
+  const resetDFA = useDFAStore(s => s.resetDFA);
+  const loadExample = useDFAStore(s => s.loadExample);
+  const minimize = useDFAStore(s => s.minimize);
+  const undo = useDFAStore(s => s.undo);
+  const redo = useDFAStore(s => s.redo);
+
+  // FIX: Use reactive selector instead of getState()
+  const stateCount = useDFAStore(s => s.states.length);
+  const historyIndex = useDFAStore(s => s.historyIndex);
+  const historyLength = useDFAStore(s => s.history.length);
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         {/* Tool group */}
         <div className="flex items-center gap-1 p-1 rounded-xl bg-card/80 backdrop-blur-sm border border-border">
           {tools.map(tool => (
@@ -60,7 +72,41 @@ export default function Toolbar() {
           ))}
         </div>
 
-        <div className="w-px h-8 bg-border mx-1" />
+        <div className="w-px h-8 bg-border mx-1 hidden sm:block" />
+
+        {/* Undo / Redo */}
+        <div className="flex items-center gap-0.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={undo}
+                disabled={historyIndex <= 0}
+                className="h-9 w-9 p-0 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
+              >
+                <Undo2 className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">Undo (Ctrl+Z)</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={redo}
+                disabled={historyIndex >= historyLength - 1}
+                className="h-9 w-9 p-0 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
+              >
+                <Redo2 className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">Redo (Ctrl+Y)</TooltipContent>
+          </Tooltip>
+        </div>
+
+        <div className="w-px h-8 bg-border mx-1 hidden sm:block" />
 
         {/* Action buttons */}
         <Tooltip>
@@ -68,7 +114,7 @@ export default function Toolbar() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={loadExample}
+              onClick={() => onOpenExamples?.()}
               className="gap-2 h-9 px-3 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
             >
               <BookOpen className="w-4 h-4" />
@@ -85,32 +131,16 @@ export default function Toolbar() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => {
-                if (showMinimized) {
-                  setShowMinimized(false);
-                  resetMinimization();
-                } else {
-                  minimize();
-                }
-              }}
-              disabled={useDFAStore.getState().states.length < 2}
+              onClick={() => minimize()}
+              disabled={stateCount < 2}
               className="gap-2 h-9 px-3 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
             >
-              {showMinimized ? (
-                <>
-                  <Minimize2 className="w-4 h-4" />
-                  <span className="hidden sm:inline text-xs">Original</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" />
-                  <span className="hidden sm:inline text-xs">Minimize</span>
-                </>
-              )}
+              <Sparkles className="w-4 h-4" />
+              <span className="hidden sm:inline text-xs">Minimize</span>
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom" className="text-xs">
-            {showMinimized ? 'Show original DFA' : 'Minimize DFA'}
+            Minimize DFA
           </TooltipContent>
         </Tooltip>
 
